@@ -8,29 +8,36 @@ cache = TTLCache(maxsize=100, ttl=500)
 app = FastAPI()
 
 @app.post("/sum")
-def get_sum(data: dict):
+def get_sum(file: UploadFile = File(...)):
     """
     POST method to calculate the sum of numbers from a JSON file. Return sum
     """
-    numbers = data.get("array", [])
-    numbers = [int(n) for n in numbers if n is not None]
-    total = sum(numbers)
-    return {"sum": total}
+    try:
+        contents = file.file.read()
+        data = json.loads(contents)
+        numbers = data.get("array", [])
+        numbers = [int(n) for n in numbers if n is not None]
+        total = sum(numbers)
+        return {"sum": total}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/send_json")
 async def get_session_id(file: UploadFile = File(...)):
     """
     POST method to calculate the sum of numbers from a JSON file. Return session ID
     """
-    data = await file.read()
-    data = json.loads(data)
-    numbers = data.get("array", [])
-    session_id = uuid.uuid4().hex
-    numbers = [int(n) for n in numbers if n is not None]
-    total = sum(numbers)
-    cache[session_id] = total
-    return {"session_id": session_id}
-
+    try:
+        data = await file.read()
+        data = json.loads(data)
+        numbers = data.get("array", [])
+        session_id = uuid.uuid4().hex
+        numbers = [int(n) for n in numbers if n is not None]
+        total = sum(numbers)
+        cache[session_id] = total
+        return {"session_id": session_id}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/{session_id}")
 async def get_result(session_id: str):
