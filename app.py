@@ -1,11 +1,15 @@
 from fastapi import FastAPI, UploadFile, File
+from typing import List
 import json
 import uuid
 from cachetools import TTLCache
+import asyncio
 
 cache = TTLCache(maxsize=100, ttl=500)
 
 app = FastAPI()
+
+app.sessions = {} # {session: task object}
 
 @app.post("/sum")
 def get_sum(file: UploadFile = File(...)):
@@ -22,30 +26,36 @@ def get_sum(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 
-@app.post("/send_json")
-async def get_session_id(file: UploadFile = File(...)):
+async def calculate_sum(numbers: List[int]):
+    return sum([int(n) for n in numbers if n is not None])
+
+@app.post("/sum_async")
+async def sum_numbers_handler(file: UploadFile = None, session_id: str = None):
     """
-    POST method to calculate the sum of numbers from a JSON file. Return session ID
+    Async method to calculate the sum of numbers from a JSON file.
+    1st case: Send the file and get session id
+    2nd case: Send the session id and get sum of numbers
     """
-    try:
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+    if session_id in app.sessions:
+        task = app.sessions[session_id]
+        if not task.done():
+            return {"status": "calculated"}
+        try:
+            total = await task
+        except Exception as e:
+            raise f'Error: {e}'
+        
+        del app.sessions[session_id]
+        return {"sum": total}
+    
+    if file is not None:
         data = await file.read()
         data = json.loads(data)
         numbers = data.get("array", [])
-        session_id = uuid.uuid4().hex
-        numbers = [int(n) for n in numbers if n is not None]
-        total = sum(numbers)
-        cache[session_id] = total
-        return {"session_id": session_id}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/{session_id}")
-async def get_result(session_id: str):
-    """
-    GET sum by session id
-    """
-    result = cache.get(session_id)
-    if result is None:
-        return {"error": "Invalid session id"}
-    else:
-        return {"sum": result}
+        if numbers is not None:
+            task = asyncio.create_task(calculate_sum(numbers))
+            app.sessions[session_id] = task
+            return {"session_id": session_id}
+    raise "File or session id were not uploaded"
